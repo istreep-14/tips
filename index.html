@@ -621,7 +621,7 @@
           DOM.rPeople.appendChild(line);
           const exTitle = document.createElement('div');
           exTitle.className = 'tiny';
-          exTitle.textContent = 'Suggested exchanges to improve bill balance';
+          exTitle.textContent = 'Suggested exchanges needed to make exact payouts';
           DOM.rPeople.appendChild(exTitle);
           for (const ex of model.billPlan.exchanges) {
             const row = document.createElement('div');
@@ -644,97 +644,97 @@
         const totalAmount = Object.entries(counts).reduce((s,[v,c])=>s + (+v)*c, 0);
         const totalBills = Object.values(counts).reduce((s,c)=>s+c,0);
         if (totalAmount === 0 || totalBills === 0) return null;
-        const avgBill = totalAmount / totalBills;
 
-        const perPerson = {};
-        const remaining = { ...counts };
+        // Build recipients list, including busser if present
+        const recipients = [];
+        if (busser && busser.payoutCents > 0) {
+          recipients.push({ name: busser.name, amount: busser.payoutCents });
+        }
+        for (const p of people) {
+          recipients.push({ name: p.name, amount: p.payoutCents });
+        }
+        const totalPayout = recipients.reduce((s,r)=>s + r.amount, 0);
+        const remainingByRecipient = Object.fromEntries(recipients.map(r => [r.name, r.amount]));
+        const perPerson = Object.fromEntries(recipients.map(r => [r.name, { 10000:0,5000:0,2000:0,1000:0,500:0,100:0 }]));
+        const remainingCounts = { ...counts };
         const exchanges = [];
 
-        function makeChangeGreedy(amount) {
-          const used = { 10000:0,5000:0,2000:0,1000:0,500:0,100:0 };
-          let rem = amount;
-          for (const v of valuesDesc) {
-            if (rem <= 0) break;
-            const maxNeed = Math.floor(rem / v);
-            const take = Math.min(maxNeed, remaining[v]);
-            if (take > 0) {
-              used[v] += take;
-              remaining[v] -= take;
-              rem -= take * v;
+        function allocateDenominationProportionally(denom) {
+          let available = remainingCounts[denom] || 0;
+          if (available <= 0) return;
+          const sumRemaining = recipients.reduce((s,r)=>s + remainingByRecipient[r.name], 0);
+          if (sumRemaining <= 0) return;
+          // Initial floor allocation
+          const desired = recipients.map(r => {
+            const cap = Math.floor(remainingByRecipient[r.name] / denom);
+            const want = Math.floor((available * remainingByRecipient[r.name]) / sumRemaining);
+            const take = Math.min(cap, want);
+            return { name: r.name, cap, want, take, frac: ((available * remainingByRecipient[r.name]) / sumRemaining) - want };
+          });
+          let takenTotal = desired.reduce((s,d)=>s + d.take, 0);
+          available -= takenTotal;
+          // Distribute leftovers by largest fractional remainder, respecting cap
+          if (available > 0) {
+            desired.sort((a,b)=> b.frac - a.frac);
+            for (const d of desired) {
+              if (available <= 0) break;
+              const room = d.cap - d.take;
+              if (room <= 0) continue;
+              const add = Math.min(room, available);
+              d.take += add;
+              available -= add;
             }
           }
-          return rem === 0 ? used : null;
-        }
-
-        function tryIncreaseBillCount(used, targetBills) {
-          const currentBills = Object.values(used).reduce((s,c)=>s+c,0);
-          if (currentBills >= targetBills) return;
-          let need = targetBills - currentBills;
-          // Break larger bills into smaller ones if possible
-          const breakMap = { 10000:[5000,5000], 5000:[1000,1000,1000,1000,1000], 2000:[1000,1000], 1000:[500,500], 500:[100,100,100,100,100] };
-          for (const v of valuesDesc) {
-            while (need > 0 && used[v] > 0) {
-              const to = breakMap[v];
-              if (!to) break;
-              // Check availability of smaller bills
-              const can = to.every(x => remaining[x] > 0);
-              if (!can) break;
-              // Perform exchange: put back one v, take "to"
-              used[v] -= 1;
-              remaining[v] += 1;
-              for (const x of to) { remaining[x] -= 1; used[x] += 1; }
-              exchanges.push({ from: v, fromQty: 1, to: aggregateToList(to) });
-              need -= (to.length - 1); // net bill count increase
+          // Apply takes
+          for (const d of desired) {
+            if (d.take > 0) {
+              perPerson[d.name][denom] += d.take;
+              remainingByRecipient[d.name] -= d.take * denom;
+              remainingCounts[denom] -= d.take;
             }
-            if (need <= 0) break;
           }
         }
 
-        function aggregateToList(arr) {
-          const m = {};
-          for (const v of arr) m[v] = (m[v]||0) + 1;
-          return Object.entries(m).map(([value, qty]) => ({ value: +value, qty }));
+        for (const v of valuesDesc) {
+          allocateDenominationProportionally(v);
         }
 
-        for (const p of people) {
-          const targetBills = Math.max(1, Math.round(p.payoutCents / avgBill));
-          let used = makeChangeGreedy(p.payoutCents);
-          if (!used) {
-            // Not enough small bills; cannot make exact change with current pool.
-            // Fallback: attempt to create ones by exchanging the smallest larger bills available.
-            // Try progressively breaking bills until we can make change.
-            const needed = p.payoutCents;
-            let attempts = 0;
-            while (!used && attempts < 20) {
-              const source = valuesDesc.find(v => remaining[v] > 0 && v > 100);
-              if (!source) break;
-              // Prefer breaking to maximize smalls without going larger
-              let to;
-              if (source === 1000 && remaining[500] >= 2) to = [500,500];
-              else if (source === 2000 && remaining[1000] >= 1) to = [1000,1000];
-              else if (source === 5000 && (remaining[1000] >= 5)) to = [1000,1000,1000,1000,1000];
-              else if (source === 10000 && remaining[5000] >= 2) to = [5000,5000];
-              else if (source === 5000 && remaining[500] >= 10) to = Array(10).fill(500);
-              else if (source === 1000 && remaining[100] >= 10) to = Array(10).fill(100);
-              else if (source === 2000 && remaining[500] >= 4) to = Array(4).fill(500);
-              else if (source === 10000 && remaining[1000] >= 10) to = Array(10).fill(1000);
-              else if (source === 2000 && remaining[100] >= 20) to = Array(20).fill(100);
-              else if (source === 5000 && remaining[100] >= 50) to = Array(50).fill(100);
-              else if (source === 10000 && remaining[100] >= 100) to = Array(100).fill(100);
-              else break;
-              remaining[source] -= 1;
-              for (const x of to) remaining[x] -= 0; // no-op to satisfy lints
-              exchanges.push({ from: source, fromQty: 1, to: aggregateToList(to) });
-              // Actually add the smaller bills to remaining
-              for (const x of to) remaining[x] = (remaining[x] || 0) + 1;
-              attempts++;
-              used = makeChangeGreedy(needed);
+        // After proportional allocation, check if exact payouts were achieved
+        let remainingSum = recipients.reduce((s,r)=>s + remainingByRecipient[r.name], 0);
+
+        // If not exact, create minimal exchanges to unlock enough small bills (prefer ones)
+        let guard = 0;
+        while (remainingSum > 0 && guard < 100) {
+          // Try to use existing small bills first (100s then 500s)
+          for (const r of recipients) {
+            const need = remainingByRecipient[r.name];
+            if (need <= 0) continue;
+            const take100 = Math.min(Math.floor(need / 100), remainingCounts[100] || 0);
+            if (take100 > 0) {
+              perPerson[r.name][100] += take100;
+              remainingByRecipient[r.name] -= take100 * 100;
+              remainingCounts[100] -= take100;
+            }
+            const needAfter100 = remainingByRecipient[r.name];
+            const take500 = Math.min(Math.floor(needAfter100 / 500), remainingCounts[500] || 0);
+            if (take500 > 0) {
+              perPerson[r.name][500] += take500;
+              remainingByRecipient[r.name] -= take500 * 500;
+              remainingCounts[500] -= take500;
             }
           }
-          if (!used) return { perPerson: perPerson, exchanges };
-          tryIncreaseBillCount(used, targetBills);
-          perPerson[p.name] = used;
+          remainingSum = recipients.reduce((s,r)=>s + remainingByRecipient[r.name], 0);
+          if (remainingSum === 0) break;
+          // Need to break a larger bill into ones to continue
+          const source = [1000,2000,5000,10000].find(v => (remainingCounts[v] || 0) > 0);
+          if (!source) break;
+          const toOnes = source / 100;
+          remainingCounts[source] -= 1;
+          remainingCounts[100] = (remainingCounts[100] || 0) + toOnes;
+          exchanges.push({ from: source, fromQty: 1, to: [{ value: 100, qty: toOnes }] });
+          guard++;
         }
+
         return { perPerson, exchanges };
       }
 
