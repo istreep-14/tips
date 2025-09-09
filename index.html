@@ -151,21 +151,24 @@
 
       <div id="inputView">
         <div class="card">
-          <div class="section-title">Cash tip pool (enter quantities)</div>
-          <div class="grid" id="denoms">
-            <div class="denom"><label>$100</label><input type="number" min="0" step="1" inputmode="numeric" id="denom-100" value="0" /></div>
-            <div class="denom"><label>$50</label><input type="number" min="0" step="1" inputmode="numeric" id="denom-50" value="0" /></div>
-            <div class="denom"><label>$20</label><input type="number" min="0" step="1" inputmode="numeric" id="denom-20" value="0" /></div>
-            <div class="denom"><label>$10</label><input type="number" min="0" step="1" inputmode="numeric" id="denom-10" value="0" /></div>
-            <div class="denom"><label>$5</label><input type="number" min="0" step="1" inputmode="numeric" id="denom-5" value="0" /></div>
-            <div class="denom"><label>$1</label><input type="number" min="0" step="1" inputmode="numeric" id="denom-1" value="0" /></div>
-            <div class="denom"><label>25¢</label><input type="number" min="0" step="1" inputmode="numeric" id="denom-0_25" value="0" /></div>
-            <div class="denom"><label>10¢</label><input type="number" min="0" step="1" inputmode="numeric" id="denom-0_10" value="0" /></div>
-            <div class="denom"><label>5¢</label><input type="number" min="0" step="1" inputmode="numeric" id="denom-0_05" value="0" /></div>
-            <div class="denom"><label>1¢</label><input type="number" min="0" step="1" inputmode="numeric" id="denom-0_01" value="0" /></div>
+          <div class="justify-between">
+            <div class="section-title">Cash tip pool</div>
+            <button class="icon-btn" id="toggleDenomsBtn">Enter by bills</button>
+          </div>
+          <div class="denom" id="totalEntryRow" style="margin-top:10px">
+            <label>Total $</label>
+            <input type="number" min="0" step="1" inputmode="numeric" id="total-dollars" value="0" enterkeyhint="next" />
+          </div>
+          <div class="grid hidden" id="denoms">
+            <div class="denom"><label>$100</label><input type="number" min="0" step="1" inputmode="numeric" enterkeyhint="next" id="denom-100" value="0" /></div>
+            <div class="denom"><label>$50</label><input type="number" min="0" step="1" inputmode="numeric" enterkeyhint="next" id="denom-50" value="0" /></div>
+            <div class="denom"><label>$20</label><input type="number" min="0" step="1" inputmode="numeric" enterkeyhint="next" id="denom-20" value="0" /></div>
+            <div class="denom"><label>$10</label><input type="number" min="0" step="1" inputmode="numeric" enterkeyhint="next" id="denom-10" value="0" /></div>
+            <div class="denom"><label>$5</label><input type="number" min="0" step="1" inputmode="numeric" enterkeyhint="next" id="denom-5" value="0" /></div>
+            <div class="denom"><label>$1</label><input type="number" min="0" step="1" inputmode="numeric" enterkeyhint="done" id="denom-1" value="0" /></div>
           </div>
           <div class="totals-row mono" style="margin-top:10px">
-            <div class="muted">Estimated total tips</div>
+            <div class="muted">Total tips</div>
             <div id="tipsTotalDisplay">$0.00</div>
           </div>
         </div>
@@ -230,9 +233,9 @@
 
     <template id="person-row-template">
       <div class="row person-input">
-        <input type="text" placeholder="Name" class="p-name" />
-        <input type="time" class="p-start" />
-        <input type="time" class="p-end" />
+        <input type="text" placeholder="Name" class="p-name" autocomplete="name" autocapitalize="words" enterkeyhint="next" />
+        <input type="time" class="p-start" enterkeyhint="next" />
+        <input type="time" class="p-end" enterkeyhint="done" />
         <button class="icon-btn remove-btn" title="Remove">✕</button>
       </div>
     </template>
@@ -256,6 +259,9 @@
         rPeople: document.getElementById('r-people'),
         rSumPayouts: document.getElementById('r-sumPayouts'),
         rRemainder: document.getElementById('r-remainder'),
+        toggleDenomsBtn: document.getElementById('toggleDenomsBtn'),
+        totalDollars: document.getElementById('total-dollars'),
+        denomsContainer: document.getElementById('denoms'),
       };
 
       const DENOMS = [
@@ -265,11 +271,9 @@
         { id: 'denom-10', cents: 1000, label: '$10' },
         { id: 'denom-5', cents: 500, label: '$5' },
         { id: 'denom-1', cents: 100, label: '$1' },
-        { id: 'denom-0_25', cents: 25, label: '25¢' },
-        { id: 'denom-0_10', cents: 10, label: '10¢' },
-        { id: 'denom-0_05', cents: 5, label: '5¢' },
-        { id: 'denom-0_01', cents: 1, label: '1¢' },
       ];
+
+      let entryMode = 'total'; // 'total' | 'denoms'
 
       function formatCurrency(cents) {
         const isNegative = cents < 0;
@@ -285,13 +289,34 @@
       }
 
       function getTotalTipsCents() {
-        let total = 0;
-        for (const d of DENOMS) {
-          const el = document.getElementById(d.id);
-          const qty = parseIntOrZero(el.value);
-          total += qty * d.cents;
+        if (entryMode === 'denoms') {
+          let total = 0;
+          for (const d of DENOMS) {
+            const el = document.getElementById(d.id);
+            const qty = parseIntOrZero(el.value);
+            total += qty * d.cents;
+          }
+          return total;
         }
-        return total;
+        const dollars = parseIntOrZero(DOM.totalDollars.value);
+        return dollars * 100;
+      }
+
+      function gatherDenoms() {
+        const items = [];
+        let sum = 0;
+        if (entryMode === 'denoms') {
+          for (const d of DENOMS) {
+            const el = document.getElementById(d.id);
+            const qty = parseIntOrZero(el.value);
+            if (qty > 0) {
+              const amount = qty * d.cents;
+              sum += amount;
+              items.push({ label: d.label, qty, amountCents: amount });
+            }
+          }
+        }
+        return { items, totalCents: sum };
       }
 
       function hhmmToMinutes(hhmm) {
@@ -330,6 +355,22 @@
         if (defaults.start) start.value = defaults.start;
         if (defaults.end) end.value = defaults.end;
         remove.addEventListener('click', () => node.remove());
+        name.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); start.focus(); }});
+        start.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); end.focus(); }});
+        end.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            const rows = Array.from(DOM.people.querySelectorAll('.person-input'));
+            const idx = rows.indexOf(node);
+            const nextRow = rows[idx + 1];
+            if (nextRow) {
+              const nextName = nextRow.querySelector('.p-name');
+              if (nextName) nextName.focus();
+            } else {
+              DOM.addPersonBtn.focus();
+            }
+          }
+        });
         DOM.people.appendChild(node);
       }
 
@@ -354,7 +395,7 @@
         clearError();
         const totalTips = getTotalTipsCents();
         if (totalTips <= 0) {
-          showError('Enter at least one denomination to form a positive tip pool.');
+          showError('Enter a positive cash tip total.');
           return;
         }
         let people;
@@ -392,6 +433,7 @@
         });
         const remainder = Math.round(totalTips - sumPayouts);
 
+        const breakdown = gatherDenoms();
         renderReceipt({
           totalTips,
           totalHours,
@@ -399,6 +441,7 @@
           people: detailed,
           sumPayouts,
           remainder,
+          breakdown,
         });
       }
 
@@ -413,6 +456,32 @@
         DOM.rRemainder.textContent = formatCurrency(model.remainder);
 
         DOM.rPeople.innerHTML = '';
+        // Cash breakdown
+        let breakdownHost = document.getElementById('r-breakdown');
+        if (!breakdownHost) {
+          const receiptCard = document.querySelector('#resultView .receipt');
+          const line = document.createElement('div');
+          line.className = 'line';
+          breakdownHost = document.createElement('div');
+          breakdownHost.id = 'r-breakdown';
+          breakdownHost.className = 'mono';
+          const insertBefore = document.getElementById('r-people');
+          receiptCard.insertBefore(line, insertBefore);
+          receiptCard.insertBefore(breakdownHost, insertBefore);
+        }
+        if (model.breakdown && model.breakdown.items && model.breakdown.items.length > 0) {
+          const parts = [];
+          parts.push('<div class="tiny">Cash breakdown</div>');
+          for (const item of model.breakdown.items) {
+            const right = formatCurrency(item.amountCents);
+            parts.push(`<div class="totals-row"><div class="mono">${item.label} × ${item.qty}</div><div class="mono right">${right}</div></div>`);
+          }
+          parts.push('<div class="line"></div>');
+          parts.push(`<div class="totals-row mono"><div class="dim">Sum of bills</div><div>${formatCurrency(model.breakdown.totalCents)}</div></div>`);
+          breakdownHost.innerHTML = parts.join('');
+        } else {
+          breakdownHost.innerHTML = `<div class="tiny">Cash total entered: ${formatCurrency(model.totalTips)}</div>`;
+        }
         for (const p of model.people) {
           const row = document.createElement('div');
           row.className = 'person-row mono';
@@ -436,18 +505,36 @@
         DOM.tipsTotalDisplay.textContent = formatCurrency(getTotalTipsCents());
       }
 
+      function setEntryMode(mode) {
+        entryMode = mode;
+        if (entryMode === 'denoms') {
+          DOM.denomsContainer.classList.remove('hidden');
+          document.getElementById('totalEntryRow').classList.add('hidden');
+          DOM.toggleDenomsBtn.textContent = 'Enter total only';
+        } else {
+          DOM.denomsContainer.classList.add('hidden');
+          document.getElementById('totalEntryRow').classList.remove('hidden');
+          DOM.toggleDenomsBtn.textContent = 'Enter by bills';
+        }
+        updateTipsTotalDisplay();
+      }
+
       function resetAll() {
         // Reset denoms
         for (const d of DENOMS) {
           const el = document.getElementById(d.id);
           el.value = '0';
         }
+        DOM.totalDollars.value = '0';
+        setEntryMode('total');
         updateTipsTotalDisplay();
         // Reset people
         DOM.people.innerHTML = '';
         addPersonRow();
         addPersonRow();
         addPersonRow();
+        const firstName = DOM.people.querySelector('.person-input .p-name');
+        if (firstName) firstName.focus();
         clearError();
         // Views
         DOM.resultView.classList.add('hidden');
@@ -456,9 +543,26 @@
 
       // Wire up
       DENOMS.forEach(d => {
-        document.getElementById(d.id).addEventListener('input', updateTipsTotalDisplay);
+        const el = document.getElementById(d.id);
+        el.addEventListener('input', updateTipsTotalDisplay);
+        el.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            const ids = DENOMS.map(x => x.id);
+            const idx = ids.indexOf(d.id);
+            if (idx >= 0 && idx < ids.length - 1) {
+              document.getElementById(ids[idx + 1]).focus();
+            } else {
+              DOM.calcBtn.focus();
+            }
+          }
+        });
       });
-      DOM.addPersonBtn.addEventListener('click', () => addPersonRow());
+      DOM.addPersonBtn.addEventListener('click', () => {
+        addPersonRow();
+        const inputs = DOM.people.querySelectorAll('.person-input .p-name');
+        if (inputs.length) inputs[inputs.length - 1].focus();
+      });
       DOM.calcBtn.addEventListener('click', calculate);
       DOM.resetBtn.addEventListener('click', resetAll);
       DOM.editBtn.addEventListener('click', () => {
@@ -466,6 +570,10 @@
         DOM.inputView.classList.remove('hidden');
       });
       DOM.printBtn.addEventListener('click', () => window.print());
+      DOM.toggleDenomsBtn.addEventListener('click', () => {
+        setEntryMode(entryMode === 'denoms' ? 'total' : 'denoms');
+      });
+      DOM.totalDollars.addEventListener('input', updateTipsTotalDisplay);
 
       // Init
       resetAll();
